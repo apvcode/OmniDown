@@ -1,0 +1,161 @@
+# ==============================================================================
+# Byte-compiled / optimized / DLL files
+# ==============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyd
+*.dll
+*.dylib
+
+# ==============================================================================
+# Distribution / packaging / build artifacts
+# ==============================================================================
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ==============================================================================
+# PyInstaller & compiled executables
+# ==============================================================================
+exe/
+bin/
+*.exe
+*.manifest
+*.spec
+
+# ==============================================================================
+# Media files, test downloads & temporary chunks
+# ==============================================================================
+test_downloads/
+downloads/
+*.mp4
+*.mkv
+*.webm
+*.avi
+*.mov
+*.flv
+*.wmv
+*.m4v
+*.mp3
+*.flac
+*.m4a
+*.opus
+*.wav
+*.aac
+*.ogg
+*.lrc
+*.srt
+*.vtt
+*.ass
+*.ts
+*.part
+*.ytdl
+*.aria2
+*.temp
+*.tmp
+*.f[0-9]*.mp4
+*.f[0-9]*.webm
+*.f[0-9]*.m4a
+
+# ==============================================================================
+# FFmpeg intermediate & 2-pass logs
+# ==============================================================================
+ffmpeg2pass*.log*
+ffprobe*.log
+
+# ==============================================================================
+# User credentials, tokens & cookies (Safety Guard)
+# ==============================================================================
+*.cookies
+*.cookies.txt
+cookies.txt
+cookie.txt
+cookies/
+*.session
+*.session-journal
+credentials.json
+token.json
+tokens.json
+secrets.json
+config.local.json
+.env
+.env.*
+!.env.example
+
+# ==============================================================================
+# Unit tests, typing & code quality
+# ==============================================================================
+.pytest_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.mypy_cache/
+.pytype/
+.ruff_cache/
+
+# ==============================================================================
+# Virtual environments
+# ==============================================================================
+.venv
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# ==============================================================================
+# IDEs, text editors & OS metadata
+# ==============================================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+.project
+.pydevproject
+.settings/
+
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# ==============================================================================
+# General logs & crash dumps
+# ==============================================================================
+*.log
+*.dmp
