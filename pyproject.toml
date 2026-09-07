@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "omnidown"
-version = "1.0.0"
+version = "1.1.0"
 description = "Industrial-grade multi-platform CLI & TUI video downloader and media processor."
 authors = [{ name = "ApvCode" }]
 license = { text = "MIT" }
