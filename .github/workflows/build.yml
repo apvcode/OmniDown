@@ -1,0 +1,59 @@
+name: Build and Release Windows Executable
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag to attach executable to'
+        required: false
+        default: 'v1.1.0'
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build OmniDown.exe (Windows)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.release_tag || github.event.release.tag_name || github.ref }}
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pyinstaller
+
+      - name: Build Standalone Executable
+        run: python scripts/build_exe.py
+
+      - name: Verify Executable
+        shell: pwsh
+        run: |
+          if (-Not (Test-Path "exe/OmniDown.exe")) {
+            Write-Error "OmniDown.exe was not created!"
+            exit 1
+          }
+          Get-Item "exe/OmniDown.exe" | Format-List Length, FullName
+          Get-FileHash "exe/OmniDown.exe" -Algorithm SHA256
+
+      - name: Upload to GitHub Release
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.inputs.release_tag || github.event.release.tag_name || github.ref_name }}
+        run: |
+          echo "Uploading exe/OmniDown.exe to release $TAG..."
+          gh release upload "$TAG" exe/OmniDown.exe --clobber
