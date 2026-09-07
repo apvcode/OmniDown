@@ -76,3 +76,48 @@ def test_parse_progress_line_invalid():
     assert parse_progress_line("Random log message without progress") is None
     assert parse_progress_line("error: failed to connect") is None
 
+
+def test_quality_option_formatted_size():
+    from omnidown.core.format_selector import QualityOption
+    opt1 = QualityOption(label="1080p", height=1080, fps=30, vcodec="h264", filesize_approx=10485760, format_id="137", is_progressive=False)
+    assert opt1.formatted_size == "~10.0 MB"
+
+    opt2 = QualityOption(label="4K", height=2160, fps=60, vcodec="vp9", filesize_approx=1073741824 * 2, format_id="313", is_progressive=False)
+    assert opt2.formatted_size == "~2.00 GB"
+
+    opt3 = QualityOption(label="Unknown", height=720, fps=None, vcodec="h264", filesize_approx=None, format_id="1", is_progressive=True)
+    assert opt3.formatted_size == "Dynamic / Unknown"
+
+
+def test_extract_quality_options_smart_size():
+    # 60-second video with adaptive video and audio
+    mock_formats = [
+        {"format_id": "audio_1", "vcodec": "none", "acodec": "mp4a", "abr": 128, "filesize": 960000},
+        {"format_id": "video_1080", "height": 1080, "width": 1920, "vcodec": "avc1.640028", "acodec": "none", "tbr": 4000, "filesize": None},
+        {"format_id": "video_720", "height": 720, "width": 1280, "vcodec": "avc1.4d401f", "acodec": "none", "tbr": 2000, "filesize": None},
+    ]
+
+    opts = extract_quality_options(mock_formats, duration_sec=60.0)
+    assert len(opts) == 2
+    # 1080p: (4000 kbps * 1000 / 8) * 60 = 30,000,000 bytes + 960,000 audio = 30,960,000 bytes (~29.5 MB)
+    assert opts[0].filesize_approx == 30960000
+    assert opts[0].formatted_size == "~29.5 MB"
+    assert opts[0].format_spec == "video_1080+bestaudio/best"
+
+
+def test_extract_quality_options_portrait_video():
+    # Vertical video (e.g. TikTok/VK Clip): width 1080, height 1920
+    mock_formats = [
+        {"format_id": "v1080", "height": 1920, "width": 1080, "vcodec": "avc1.640028", "acodec": "none", "tbr": 5000, "filesize": 20000000},
+        {"format_id": "v720", "height": 1280, "width": 720, "vcodec": "avc1.4d401f", "acodec": "none", "tbr": 2500, "filesize": 10000000},
+    ]
+
+    opts = extract_quality_options(mock_formats)
+    assert len(opts) == 2
+    # Res should be min(w, h) -> 1080 and 720
+    assert opts[0].height == 1080
+    assert opts[0].label == "1080p (Full HD)"
+    assert opts[1].height == 720
+    assert opts[1].label == "720p (HD)"
+
+

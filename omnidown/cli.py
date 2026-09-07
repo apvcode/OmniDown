@@ -113,13 +113,101 @@ def inspect_cli(
 
         for idx, opt in enumerate(meta.quality_options, 1):
             fps_str = str(opt.fps) if opt.fps else "-"
-            size_mb = f"{opt.filesize_approx / (1024*1024):.1f} MB" if opt.filesize_approx else "Dynamic / HLS"
+            size_mb = opt.formatted_size
             stream_type = "Progressive (AV)" if opt.is_progressive else "Adaptive Stream"
             table.add_row(str(idx), opt.label, fps_str, opt.vcodec.upper(), size_mb, stream_type)
 
         console.print(table)
     else:
         console.print("[yellow]ℹ️ Stream qualities will be negotiated dynamically at download time.[/yellow]")
+
+
+def choose_quality_and_download(url: str, output_dir: Optional[str] = None):
+    """Interactively inspects video streams and lets the user pick quality with estimated file size."""
+    url = url.strip()
+    if not url:
+        return
+
+    with Status("[cyan]Analyzing video streams and calculating file sizes...", spinner="dots", console=console):
+        try:
+            meta = VideoInspector.inspect(url, cookies_browser=config.get("browser_cookies"))
+        except Exception as e:
+            console.print(f"[bold red]❌ Inspection Error:[/bold red] {e}")
+            return
+
+    console.print(Panel.fit(
+        f"[bold white]{meta.title}[/bold white]\n"
+        f"👤 [bold]Channel/Author:[/bold] [green]{meta.uploader}[/green]   "
+        f"⏱️ [bold]Duration:[/bold] [yellow]{meta.formatted_duration}[/yellow]   "
+        f"🌐 [bold]Platform:[/bold] [cyan]{meta.platform}[/cyan]",
+        title=f"🎬 {meta.platform} Video Info",
+        border_style="cyan"
+    ))
+
+    if not meta.quality_options:
+        console.print("[yellow]ℹ️ No fixed stream list found. Downloading in best available quality.[/yellow]")
+        selected_quality = "best"
+        custom_spec = None
+        is_audio = False
+    else:
+        best_sz = f" ({meta.quality_options[0].formatted_size})" if meta.quality_options[0].filesize_approx else ""
+        choices = [f"✨ Best Available Quality{best_sz}"]
+        for opt in meta.quality_options:
+            stream_tag = " [AV Combined]" if opt.is_progressive else ""
+            choices.append(f"🎬 {opt.label} [{opt.vcodec.upper()}]{stream_tag} ({opt.formatted_size})")
+
+        choices.append("🎵 Audio Only (MP3 320k)")
+        choices.append("⬅️ Back / Cancel")
+
+        selected_choice = inquirer.select(
+            message="Select video quality to download:",
+            choices=choices,
+            pointer="> "
+        ).execute()
+
+        if selected_choice == "⬅️ Back / Cancel":
+            return
+
+        if selected_choice.startswith("🎵 Audio Only"):
+            selected_quality = "mp3"
+            custom_spec = None
+            is_audio = True
+        elif selected_choice.startswith("✨ Best Available"):
+            selected_quality = "best"
+            custom_spec = None
+            is_audio = False
+        else:
+            idx = choices.index(selected_choice) - 1
+            selected_opt = meta.quality_options[idx]
+            selected_quality = f"{selected_opt.height}p"
+            custom_spec = selected_opt.format_spec
+            is_audio = False
+
+    out_dir = output_dir or ask_download_directory()
+
+    console.print(f"\n[cyan]🚀 Downloading video in [{selected_quality.upper()}] quality...[/cyan]")
+    res = download_with_rich_progress(
+        url=url,
+        output_dir=out_dir,
+        quality=selected_quality,
+        custom_format_spec=custom_spec,
+        audio_only=is_audio,
+        audio_format="mp3"
+    )
+
+    if res.success:
+        title_str = f"🎵 [bold white]{res.title or meta.title}[/bold white]\n" if (res.title or meta.title) else ""
+        file_str = f"📁 [yellow]{res.file_path}[/yellow]" if res.file_path else f"📁 Saved to folder: [yellow]{out_dir}[/yellow]"
+        console.print(Panel.fit(
+            f"[bold green]✅ Download Completed Successfully![/bold green]\n"
+            f"{title_str}{file_str}",
+            border_style="green"
+        ))
+    else:
+        console.print(Panel.fit(
+            f"[bold red]❌ Download Failed[/bold red]\n{res.error_message}",
+            border_style="red"
+        ))
 
 
 @app.command("download")
@@ -129,8 +217,13 @@ def download_cli(
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Target output folder"),
     audio_only: bool = typer.Option(False, "--audio-only", "-a", help="Extract audio only"),
     audio_format: str = typer.Option("mp3", "--audio-format", help="Audio codec: mp3, m4a, flac, opus"),
+    choose_quality: bool = typer.Option(False, "--choose-quality", "-c", "--interactive", "-i", help="Interactively choose video quality and show file sizes before downloading")
 ):
     """Download video or audio from supported platforms."""
+    if choose_quality and not audio_only:
+        choose_quality_and_download(url=url, output_dir=output)
+        return
+
     out_dir = output or get_default_download_dir()
     console.print(f"[cyan]🚀 Initializing download for:[/cyan] [bold white]{url}[/bold white]")
 
@@ -351,8 +444,9 @@ def run_interactive_tui():
             action = inquirer.select(
                 message="\nWhat would you like to do?",
                 choices=[
-                    f"📥 Quick Download Video [Default: {cur_q}]",
-                    "🔍 Inspect URL & Pick Exact Quality",
+                    "📥 Download Video (Pick Quality & Size)",
+                    f"⚡ Quick Download [Default: {cur_q}]",
+                    "🔍 Inspect Stream Matrix & Info",
                     "✂️ Download Video Segment (Stream Trim)",
                     "🎵 Extract Audio Only (MP3 / FLAC / M4A / Opus)",
                     "📦 Smart Compress Video (Discord / Telegram / WhatsApp)",
@@ -369,9 +463,17 @@ def run_interactive_tui():
                 break
 
             # -------------------------------------------------------------
-            # 1. QUICK DOWNLOAD
+            # 1. DOWNLOAD WITH QUALITY & SIZE PICKER
             # -------------------------------------------------------------
-            if action.startswith("📥 Quick Download Video"):
+            if action.startswith("📥 Download Video (Pick Quality & Size)"):
+                url = inquirer.text(message="Enter video URL:").execute()
+                if url and url.strip():
+                    choose_quality_and_download(url.strip())
+
+            # -------------------------------------------------------------
+            # 2. QUICK DOWNLOAD
+            # -------------------------------------------------------------
+            elif action.startswith("⚡ Quick Download"):
                 url = inquirer.text(message="Enter video URL:").execute()
                 if not url or not url.strip():
                     continue
@@ -391,9 +493,9 @@ def run_interactive_tui():
                     console.print(Panel.fit(f"[bold red]❌ Error:[/bold red] {res.error_message}", border_style="red"))
 
             # -------------------------------------------------------------
-            # 2. INSPECT & CUSTOM QUALITY
+            # 3. INSPECT STREAMS
             # -------------------------------------------------------------
-            elif action == "🔍 Inspect URL & Pick Exact Quality":
+            elif action.startswith("🔍 Inspect Stream Matrix"):
                 url = inquirer.text(message="Enter video URL to inspect:").execute()
                 if not url or not url.strip():
                     continue
@@ -405,42 +507,33 @@ def run_interactive_tui():
                         console.print(f"[bold red]❌ Inspection Error:[/bold red] {e}")
                         continue
 
-                console.print(f"\n[bold white]Title:[/bold white] {meta.title}")
-                console.print(f"[bold white]Duration:[/bold white] {meta.formatted_duration} | [bold white]Platform:[/bold white] {meta.platform}")
+                console.print(Panel.fit(
+                    f"[bold white]{meta.title}[/bold white]\n"
+                    f"👤 [bold]Channel/Uploader:[/bold] [green]{meta.uploader}[/green]\n"
+                    f"⏱️ [bold]Duration:[/bold] [yellow]{meta.formatted_duration}[/yellow]\n"
+                    f"🌐 [bold]Platform:[/bold] [cyan]{meta.platform}[/cyan]"
+                    + (f" 📑 ([bold magenta]{meta.playlist_count} videos in playlist[/bold magenta])" if meta.is_playlist else ""),
+                    title=f"🎬 {meta.platform} Stream Info",
+                    border_style="cyan"
+                ))
 
-                if not meta.quality_options:
-                    console.print("[yellow]No fixed format list found. Proceeding with best quality.[/yellow]")
-                    selected_quality = "best"
+                if meta.quality_options:
+                    table = Table(title="Available Video Qualities & Estimated Sizes", border_style="green")
+                    table.add_column("#", style="dim")
+                    table.add_column("Resolution / Label", style="bold white")
+                    table.add_column("FPS", style="yellow")
+                    table.add_column("Codec", style="magenta")
+                    table.add_column("Est. Size", style="cyan")
+                    table.add_column("Type", style="green")
+
+                    for idx, opt in enumerate(meta.quality_options, 1):
+                        fps_str = str(opt.fps) if opt.fps else "-"
+                        stream_type = "Progressive (AV)" if opt.is_progressive else "Adaptive Stream"
+                        table.add_row(str(idx), opt.label, fps_str, opt.vcodec.upper(), opt.formatted_size, stream_type)
+
+                    console.print(table)
                 else:
-                    choices = []
-                    for opt in meta.quality_options:
-                        sz = f" ~{opt.filesize_approx / (1024*1024):.1f} MB" if opt.filesize_approx else ""
-                        choices.append(f"{opt.label} [{opt.vcodec.upper()}]{sz}")
-                    choices.append("⬅️ Back to Main Menu")
-
-                    selected_choice = inquirer.select(
-                        message="Select video quality:",
-                        choices=choices,
-                        pointer="> "
-                    ).execute()
-
-                    if selected_choice == "⬅️ Back to Main Menu":
-                        continue
-
-                    idx = choices.index(selected_choice)
-                    selected_opt = meta.quality_options[idx]
-                    selected_quality = f"{selected_opt.height}p"
-
-                out_dir = ask_download_directory()
-                res = download_with_rich_progress(url=url.strip(), output_dir=out_dir, quality=selected_quality)
-                if res.success:
-                    console.print(Panel.fit(
-                        f"[bold green]✅ Downloaded successfully in {selected_quality.upper()}![/bold green]\n"
-                        f"📁 Saved to: [yellow]{res.file_path or out_dir}[/yellow]",
-                        border_style="green"
-                    ))
-                else:
-                    console.print(Panel.fit(f"[bold red]❌ Error:[/bold red] {res.error_message}", border_style="red"))
+                    console.print("[yellow]ℹ️ Stream qualities will be negotiated dynamically at download time.[/yellow]")
 
             # -------------------------------------------------------------
             # 3. STREAM TRIM

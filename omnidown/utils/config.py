@@ -18,7 +18,6 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "embed_metadata": True,
     "proxy": None,
     "browser_cookies": None,
-    "telegram_bot_token": None,
 }
 
 class ConfigManager:

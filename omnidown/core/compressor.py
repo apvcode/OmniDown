@@ -2,6 +2,8 @@ import os
 import sys
 import re
 import json
+import shutil
+import tempfile
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -232,6 +234,8 @@ class VideoCompressor:
             v_filters.append(plan.scale_filter)
 
         filter_arg = ["-vf", ",".join(v_filters)] if v_filters else []
+        temp_log_dir = tempfile.mkdtemp(prefix="omnidown_pass_")
+        passlog_prefix = os.path.join(temp_log_dir, "ffmpeg2pass")
 
         try:
             if hw_enc:
@@ -264,6 +268,7 @@ class VideoCompressor:
                     "-c:v", "libx264",
                     "-b:v", f"{plan.video_kbps}k",
                     "-pass", "1",
+                    "-passlogfile", passlog_prefix,
                     "-an",
                     "-f", "null",
                     os.devnull if sys.platform == "win32" else "/dev/null"
@@ -278,6 +283,7 @@ class VideoCompressor:
                     "-c:v", "libx264",
                     "-b:v", f"{plan.video_kbps}k",
                     "-pass", "2",
+                    "-passlogfile", passlog_prefix,
                     "-c:a", "aac",
                     "-b:a", f"{plan.audio_kbps}k",
                     "-movflags", "+faststart",
@@ -287,14 +293,6 @@ class VideoCompressor:
                     output_path
                 ]
                 self._run_ffmpeg_with_progress(pass2_cmd, info.duration_sec, progress_callback)
-
-            # Cleanup 2-pass log files if created
-            for p_file in ("ffmpeg2pass-0.log", "ffmpeg2pass-0.log.mbtree"):
-                if os.path.exists(p_file):
-                    try:
-                        os.remove(p_file)
-                    except Exception:
-                        pass
 
             if os.path.exists(output_path):
                 final_bytes = os.path.getsize(output_path)
@@ -309,6 +307,8 @@ class VideoCompressor:
 
         except Exception as e:
             return CompressionResult(success=False, error_message=str(e), plan=plan)
+        finally:
+            shutil.rmtree(temp_log_dir, ignore_errors=True)
 
     def _run_ffmpeg_with_progress(
         self,
@@ -327,18 +327,29 @@ class VideoCompressor:
         )
 
         current_block = []
-        if proc.stdout:
-            for raw_line in proc.stdout:
-                line = raw_line.strip()
-                current_block.append(line)
-                if line.startswith("progress="):
-                    p_info = parse_ffmpeg_progress_line("\n".join(current_block))
-                    current_block = []
-                    if p_info and p_info.out_time_sec is not None and progress_callback:
-                        pct = min(100.0, (p_info.out_time_sec / max(0.1, total_duration_sec)) * 100.0)
-                        progress_callback(pct, p_info.speed_multiplier)
+        try:
+            if proc.stdout:
+                for raw_line in proc.stdout:
+                    line = raw_line.strip()
+                    current_block.append(line)
+                    if line.startswith("progress="):
+                        p_info = parse_ffmpeg_progress_line("\n".join(current_block))
+                        current_block = []
+                        if p_info and p_info.out_time_sec is not None and progress_callback:
+                            pct = min(100.0, (p_info.out_time_sec / max(0.1, total_duration_sec)) * 100.0)
+                            progress_callback(pct, p_info.speed_multiplier)
 
-        proc.wait()
-        if proc.returncode != 0:
-            err = proc.stderr.read() if proc.stderr else f"Exit code {proc.returncode}"
-            raise RuntimeError(f"FFmpeg compression failed: {err}")
+            proc.wait()
+            if proc.returncode != 0:
+                err = proc.stderr.read() if proc.stderr else f"Exit code {proc.returncode}"
+                raise RuntimeError(f"FFmpeg compression failed: {err}")
+        finally:
+            if proc.poll() is None:
+                try:
+                    proc.terminate()
+                    proc.wait(timeout=2)
+                except Exception:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass

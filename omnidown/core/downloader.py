@@ -109,7 +109,11 @@ class VideoDownloader:
                 ])
 
             if self.embed_subtitles:
-                args.extend(["--embed-subs", "--sub-langs", "all,-live_chat"])
+                args.extend([
+                    "--embed-subs",
+                    "--sub-langs", "all,-live_chat",
+                    "--sub-format", "vtt/srt/ass/best"
+                ])
 
             if self.embed_thumbnail:
                 args.append("--embed-thumbnail")
@@ -122,6 +126,7 @@ class VideoDownloader:
             final_filepath = None
             extracted_title = None
             error_lines = []
+            process = None
 
             try:
                 process = subprocess.Popen(
@@ -177,6 +182,16 @@ class VideoDownloader:
 
             except Exception:
                 pass
+            finally:
+                if process and process.poll() is None:
+                    try:
+                        process.terminate()
+                        process.wait(timeout=2)
+                    except Exception:
+                        try:
+                            process.kill()
+                        except Exception:
+                            pass
 
         # 2. In-Process fallback with embedded yt_dlp
         try:
@@ -226,6 +241,7 @@ class VideoDownloader:
             if self.embed_subtitles:
                 ydl_opts['writesubtitles'] = True
                 ydl_opts['allsubtitles'] = True
+                ydl_opts['subtitlesformat'] = 'vtt/srt/ass/best'
                 postprocessors.append({'key': 'FFmpegEmbedSubtitle'})
             if self.embed_thumbnail:
                 ydl_opts['writethumbnail'] = True
@@ -262,6 +278,7 @@ def download_with_rich_progress(
     url: str,
     output_dir: Optional[str] = None,
     quality: str = "best",
+    custom_format_spec: Optional[str] = None,
     audio_only: bool = False,
     audio_format: str = "mp3"
 ) -> DownloadResult:
@@ -314,10 +331,22 @@ def download_with_rich_progress(
                     )
 
         def on_status(status_msg: str):
-            progress.update(task_id, description=f"[yellow]{status_msg}[/yellow]")
+            clean_msg = status_msg
+            if "[Merger]" in status_msg:
+                clean_msg = "Merging video & audio streams (FFmpeg)..."
+            elif "[Embed" in status_msg:
+                clean_msg = "Embedding metadata, cover & subtitles..."
+            elif "[ExtractAudio]" in status_msg:
+                clean_msg = "Extracting & converting audio..."
+            progress.update(
+                task_id,
+                description=f"[bold yellow]⏳ {clean_msg}[/bold yellow]",
+                info="[Processing]"
+            )
 
         result = downloader.download(
             url=url,
+            custom_format_spec=custom_format_spec,
             progress_callback=on_progress,
             status_callback=on_status
         )

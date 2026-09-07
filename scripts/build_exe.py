@@ -33,7 +33,6 @@ def build(smoke_test: bool = False):
         "--collect-all=imageio_ffmpeg",
         "--collect-all=rich",
         "--collect-all=InquirerPy",
-        "--collect-all=telebot",
         "--distpath=exe",
         "main.py"
     ]

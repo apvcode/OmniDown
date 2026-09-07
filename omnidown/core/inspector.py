@@ -117,7 +117,8 @@ class VideoInspector:
             title = data.get("title") or first.get("title") or "Playlist"
             formats = first.get("formats", [])
 
-        qualities = extract_quality_options(formats)
+        dur_sec = float(duration) if duration else None
+        qualities = extract_quality_options(formats, duration_sec=dur_sec)
 
         return VideoMetadata(
             url=normalized_url,

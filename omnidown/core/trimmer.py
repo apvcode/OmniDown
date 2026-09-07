@@ -86,6 +86,7 @@ class MediaTrimmer:
 
             final_filepath = None
             error_lines = []
+            proc = None
 
             try:
                 proc = subprocess.Popen(
@@ -132,6 +133,16 @@ class MediaTrimmer:
                 )
             except Exception:
                 pass
+            finally:
+                if proc and proc.poll() is None:
+                    try:
+                        proc.terminate()
+                        proc.wait(timeout=2)
+                    except Exception:
+                        try:
+                            proc.kill()
+                        except Exception:
+                            pass
 
         # 2. In-Process fallback
         try:
@@ -272,3 +283,13 @@ class MediaTrimmer:
 
         except Exception as e:
             return TrimmerResult(success=False, error_message=str(e), time_range=t_range)
+        finally:
+            if proc and proc.poll() is None:
+                try:
+                    proc.terminate()
+                    proc.wait(timeout=2)
+                except Exception:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass

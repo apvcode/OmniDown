@@ -10,6 +10,17 @@ class QualityOption:
     filesize_approx: Optional[int] # in bytes
     format_id: str           # yt-dlp format_id or selector
     is_progressive: bool     # True if video+audio combined
+    format_spec: Optional[str] = None
+    width: Optional[int] = None
+
+    @property
+    def formatted_size(self) -> str:
+        if not self.filesize_approx or self.filesize_approx <= 0:
+            return "Dynamic / Unknown"
+        mb = self.filesize_approx / (1024 * 1024)
+        if mb >= 1024:
+            return f"~{mb / 1024:.2f} GB"
+        return f"~{mb:.1f} MB"
 
 
 def normalize_codec(codec: Optional[str]) -> str:
@@ -99,50 +110,90 @@ def build_yt_dlp_format_spec(
     return f"{primary_video}+bestaudio/best"
 
 
-def extract_quality_options(formats: List[Dict[str, Any]]) -> List[QualityOption]:
+def extract_quality_options(
+    formats: List[Dict[str, Any]],
+    duration_sec: Optional[float] = None
+) -> List[QualityOption]:
     """
-    Parses a raw yt-dlp formats list into deduplicated QualityOption objects sorted by height descending.
+    Parses a raw yt-dlp formats list into deduplicated QualityOption objects sorted by resolution descending.
+    Includes smart file size calculation for adaptive (DASH) and progressive streams.
     """
     if not formats:
         return []
 
-    # Map height -> best format
-    by_height: Dict[int, Dict[str, Any]] = {}
+    # 1. Estimate best audio stream size/bitrate for muxed adaptive streams
+    best_audio_bitrate = 128.0
+    best_audio_size = 0
+    for f in formats:
+        vc = f.get("vcodec")
+        ac = f.get("acodec")
+        if (vc == "none" or vc is None) and (ac and ac != "none"):
+            abr = f.get("abr") or f.get("tbr") or 0
+            if abr > best_audio_bitrate:
+                best_audio_bitrate = float(abr)
+            sz = f.get("filesize") or f.get("filesize_approx")
+            if sz and sz > best_audio_size:
+                best_audio_size = int(sz)
+
+    if not best_audio_size and duration_sec and duration_sec > 0:
+        best_audio_size = int((best_audio_bitrate * 1000.0 / 8.0) * duration_sec)
+
+    # 2. Group best video format by effective resolution height
+    # by_res: res -> (score, format_dict, calculated_total_size)
+    by_res: Dict[int, Tuple[float, Dict[str, Any], Optional[int]]] = {}
 
     for f in formats:
         height = f.get("height")
+        width = f.get("width")
         vcodec = f.get("vcodec")
-        if not height or vcodec == "none":
+        if not height or vcodec in (None, "none"):
             continue
 
-        existing = by_height.get(height)
-        if not existing:
-            by_height[height] = f
-        else:
-            # Prefer formats with higher tbr / bitrate or better codec
-            curr_tbr = f.get("tbr") or f.get("vbr") or 0
-            ex_tbr = existing.get("tbr") or existing.get("vbr") or 0
-            if curr_tbr > ex_tbr:
-                by_height[height] = f
+        # Effective resolution height: for portrait/vertical videos (e.g. 1080x1920), min(w, h) is 1080
+        res = min(width, height) if (width and height and width > 0 and height > 0) else height
+
+        # Calculate stream size
+        stream_sz = f.get("filesize") or f.get("filesize_approx")
+        tbr = f.get("tbr") or f.get("vbr") or 0
+        if not stream_sz and tbr and duration_sec and duration_sec > 0:
+            stream_sz = int((float(tbr) * 1000.0 / 8.0) * duration_sec)
+
+        acodec = f.get("acodec")
+        is_prog = (vcodec not in (None, "none") and acodec not in (None, "none"))
+        total_sz = stream_sz
+        if not is_prog and total_sz is not None and best_audio_size > 0:
+            total_sz += best_audio_size
+
+        # Compute format priority score:
+        # Prefer known size (+1000)
+        # Prefer standard https over m3u8_native (+500)
+        norm_c = normalize_codec(vcodec)
+        codec_bonus = 300 if norm_c == "h264" else (200 if norm_c == "vp9" else (100 if norm_c == "av1" else 0))
+        proto_bonus = 500 if f.get("protocol") == "https" else 0
+        size_bonus = 1000 if stream_sz else 0
+        score = size_bonus + proto_bonus + codec_bonus + float(tbr)
+
+        if res not in by_res or score > by_res[res][0]:
+            by_res[res] = (score, f, total_sz)
 
     options: List[QualityOption] = []
-    for height in sorted(by_height.keys(), reverse=True):
-        f = by_height[height]
+    for res in sorted(by_res.keys(), reverse=True):
+        _, f, est_size = by_res[res]
+        w = f.get("width")
         fps = f.get("fps")
         vcodec = normalize_codec(f.get("vcodec"))
         acodec = normalize_codec(f.get("acodec"))
         is_prog = (vcodec != "none" and acodec != "none")
+        fid = str(f.get("format_id", ""))
 
-        size = f.get("filesize") or f.get("filesize_approx")
-        
-        label_prefix = f"{height}p"
-        if height >= 2160:
+        label_prefix = f"{res}p"
+        if res >= 2160:
             label = f"{label_prefix} (4K UHD)"
-        elif height >= 1440:
+        elif res >= 1440:
             label = f"{label_prefix} (2K QHD)"
-        elif height >= 1080:
+        elif res >= 1080:
             label = f"{label_prefix} (Full HD)"
-        elif height >= 720:
+        elif res >= 720:
             label = f"{label_prefix} (HD)"
         else:
             label = f"{label_prefix} (SD)"
@@ -150,14 +201,18 @@ def extract_quality_options(formats: List[Dict[str, Any]]) -> List[QualityOption
         if fps and fps >= 50:
             label += f" {fps}fps"
 
+        format_spec = fid if is_prog else f"{fid}+bestaudio/best"
+
         options.append(QualityOption(
             label=label,
-            height=height,
+            height=res,
             fps=fps,
             vcodec=vcodec,
-            filesize_approx=size,
-            format_id=str(f.get("format_id", "")),
-            is_progressive=is_prog
+            filesize_approx=est_size,
+            format_id=fid,
+            is_progressive=is_prog,
+            format_spec=format_spec,
+            width=w
         ))
 
     return options

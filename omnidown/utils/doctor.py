@@ -53,7 +53,9 @@ def run_doctor_diagnostics():
     table.add_row("Managed Bin Dir", "[green]✔ OK[/green]", str(BIN_DIR))
     table.add_row("Default Download Dir", "[green]✔ OK[/green]", str(config.get("download_dir")))
 
-    # 5. Network Connectivity (Non-fatal, with timeout)
+    # 5. Network Connectivity (Non-fatal, with timeout, parallelized)
+    import concurrent.futures
+
     sites = [
         ("VK (vk.com)", "https://vk.com"),
         ("Rutube", "https://rutube.ru"),
@@ -61,15 +63,22 @@ def run_doctor_diagnostics():
         ("TikTok", "https://www.tiktok.com")
     ]
 
-    for site_name, url in sites:
+    def check_site(site_info):
+        site_name, url = site_info
         try:
             res = requests.get(url, timeout=3, headers={"User-Agent": "Mozilla/5.0"})
             if res.status_code < 500:
-                table.add_row(f"Network: {site_name}", "[green]✔ Reachable[/green]", f"HTTP {res.status_code}")
+                return (site_name, "[green]✔ Reachable[/green]", f"HTTP {res.status_code}")
             else:
-                table.add_row(f"Network: {site_name}", "[yellow]⚠️ Warning[/yellow]", f"HTTP {res.status_code}")
-        except Exception as e:
-            table.add_row(f"Network: {site_name}", "[yellow]⚠️ Offline/Blocked[/yellow]", "Timeout or no connection")
+                return (site_name, "[yellow]⚠️ Warning[/yellow]", f"HTTP {res.status_code}")
+        except Exception:
+            return (site_name, "[yellow]⚠️ Offline/Blocked[/yellow]", "Timeout or no connection")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(sites)) as executor:
+        results = list(executor.map(check_site, sites))
+
+    for site_name, status_str, detail in results:
+        table.add_row(f"Network: {site_name}", status_str, detail)
 
     console.print(table)
     console.print()
