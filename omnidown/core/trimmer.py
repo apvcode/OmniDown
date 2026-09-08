@@ -12,6 +12,7 @@ from omnidown.utils.time_parser import parse_time_range, TimeRange
 from omnidown.utils.ytdlp_bin import YtDlpEngine, parse_progress_line, ProgressInfo
 from omnidown.core.format_selector import build_yt_dlp_format_spec
 from omnidown.core.compressor import parse_ffmpeg_progress_line
+from omnidown.extractors.router import URLRouter
 
 console = Console()
 
@@ -46,6 +47,7 @@ class MediaTrimmer:
         - exact=True (Accurate): Frame-exact cuts via --force-keyframes-at-cuts.
         """
         try:
+            url = URLRouter.normalize_url(url)
             t_range = parse_time_range(time_range_str)
         except ValueError as e:
             return TrimmerResult(success=False, error_message=str(e))
