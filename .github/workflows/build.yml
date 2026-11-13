@@ -6,7 +6,7 @@ on:
       release_tag:
         description: 'Release tag to attach executable to'
         required: false
-        default: 'v1.1.0'
+        default: 'v1.2.0'
   release:
     types: [published]
 
