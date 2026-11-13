@@ -13,7 +13,6 @@ if sys.platform == "win32":
 
 import typer
 from rich.console import Console
-from rich.panel import Panel
 from rich.table import Table
 from rich.status import Status
 from rich.progress import (
@@ -39,6 +38,13 @@ from omnidown.utils.doctor import run_doctor_diagnostics
 from omnidown.utils.updater import EngineUpdater
 from omnidown.utils.cookies import CookieManager
 from omnidown.utils.ytdlp_bin import ProgressInfo
+from omnidown.ui.animations import (
+    supports_animation,
+    animated_banner,
+    animated_panel,
+    result_panel,
+    stream_sweep,
+)
 
 LOGO = """[bold cyan]
   ██████╗ ███╗   ███╗███╗   ██╗██╗██████╗  ██████╗ ██╗    ██╗███╗   ██╗
@@ -49,7 +55,7 @@ LOGO = """[bold cyan]
   ╚═════╝ ╚═╝     ╚═╝╚═╝  ╚═══╝╚═╝╚═════╝  ╚═════╝  ╚══╝╚══╝ ╚═╝  ╚═══╝[/bold cyan]"""
 
 app = typer.Typer(
-    help="🎬 OmniDown - Industrial-grade multi-platform video downloader and media processor.",
+    help="OmniDown - Industrial-grade multi-platform video downloader and media processor.",
     no_args_is_help=False
 )
 console = Console()
@@ -63,7 +69,7 @@ def ask_download_directory() -> str:
         message=f"Save to default folder? ({default_path})",
         default=True
     ).execute()
-    
+
     if use_default:
         return default_path
     else:
@@ -89,18 +95,19 @@ def inspect_cli(
         try:
             meta = VideoInspector.inspect(url, proxy=proxy, cookies_browser=browser)
         except Exception as e:
-            console.print(f"[bold red]❌ Inspection Error:[/bold red] {e}")
+            console.print(f"[bold red]Inspection Error:[/bold red] {e}")
             raise typer.Exit(1)
 
-    console.print(Panel.fit(
+    animated_panel(
+        console,
         f"[bold white]{meta.title}[/bold white]\n"
-        f"👤 [bold]Channel/Uploader:[/bold] [green]{meta.uploader}[/green]\n"
-        f"⏱️ [bold]Duration:[/bold] [yellow]{meta.formatted_duration}[/yellow]\n"
-        f"🌐 [bold]Platform:[/bold] [cyan]{meta.platform}[/cyan]"
-        + (f" 📑 ([bold magenta]{meta.playlist_count} videos in playlist[/bold magenta])" if meta.is_playlist else ""),
-        title=f"🎬 {meta.platform} Stream Info",
-        border_style="cyan"
-    ))
+        f"[bold]Channel/Uploader:[/bold] [green]{meta.uploader}[/green]\n"
+        f"[bold]Duration:[/bold] [yellow]{meta.formatted_duration}[/yellow]\n"
+        f"[bold]Platform:[/bold] [cyan]{meta.platform}[/cyan]"
+        + (f"([bold magenta]{meta.playlist_count} videos in playlist[/bold magenta])" if meta.is_playlist else ""),
+        title=f"{meta.platform} Stream Info",
+        kind="info",
+    )
 
     if meta.quality_options:
         table = Table(title="Available Video Qualities", border_style="green")
@@ -119,7 +126,7 @@ def inspect_cli(
 
         console.print(table)
     else:
-        console.print("[yellow]ℹ️ Stream qualities will be negotiated dynamically at download time.[/yellow]")
+        console.print("[yellow]Note: stream qualities will be negotiated dynamically at download time.[/yellow]")
 
 
 def choose_quality_and_download(url: str, output_dir: Optional[str] = None):
@@ -132,32 +139,33 @@ def choose_quality_and_download(url: str, output_dir: Optional[str] = None):
         try:
             meta = VideoInspector.inspect(url, cookies_browser=config.get("browser_cookies"))
         except Exception as e:
-            console.print(f"[bold red]❌ Inspection Error:[/bold red] {e}")
+            console.print(f"[bold red]Inspection Error:[/bold red] {e}")
             return
 
-    console.print(Panel.fit(
+    animated_panel(
+        console,
         f"[bold white]{meta.title}[/bold white]\n"
-        f"👤 [bold]Channel/Author:[/bold] [green]{meta.uploader}[/green]   "
-        f"⏱️ [bold]Duration:[/bold] [yellow]{meta.formatted_duration}[/yellow]   "
-        f"🌐 [bold]Platform:[/bold] [cyan]{meta.platform}[/cyan]",
-        title=f"🎬 {meta.platform} Video Info",
-        border_style="cyan"
-    ))
+        f"[bold]Channel/Author:[/bold] [green]{meta.uploader}[/green] "
+        f"[bold]Duration:[/bold] [yellow]{meta.formatted_duration}[/yellow] "
+        f"[bold]Platform:[/bold] [cyan]{meta.platform}[/cyan]",
+        title=f"{meta.platform} Video Info",
+        kind="info",
+    )
 
     if not meta.quality_options:
-        console.print("[yellow]ℹ️ No fixed stream list found. Downloading in best available quality.[/yellow]")
+        console.print("[yellow]Note: no fixed stream list found. Downloading in best available quality.[/yellow]")
         selected_quality = "best"
         custom_spec = None
         is_audio = False
     else:
         best_sz = f" ({meta.quality_options[0].formatted_size})" if meta.quality_options[0].filesize_approx else ""
-        choices = [f"✨ Best Available Quality{best_sz}"]
+        choices = [f"Best Available Quality{best_sz}"]
         for opt in meta.quality_options:
             stream_tag = " [AV Combined]" if opt.is_progressive else ""
-            choices.append(f"🎬 {opt.label} [{opt.vcodec.upper()}]{stream_tag} ({opt.formatted_size})")
+            choices.append(f"{opt.label} [{opt.vcodec.upper()}]{stream_tag} ({opt.formatted_size})")
 
-        choices.append("🎵 Audio Only (MP3 320k)")
-        choices.append("⬅️ Back / Cancel")
+        choices.append("Audio Only (MP3 320k)")
+        choices.append("Back / Cancel")
 
         selected_choice = inquirer.select(
             message="Select video quality to download:",
@@ -165,14 +173,14 @@ def choose_quality_and_download(url: str, output_dir: Optional[str] = None):
             pointer="> "
         ).execute()
 
-        if selected_choice == "⬅️ Back / Cancel":
+        if selected_choice == "Back / Cancel":
             return
 
-        if selected_choice.startswith("🎵 Audio Only"):
+        if selected_choice.startswith("Audio Only"):
             selected_quality = "mp3"
             custom_spec = None
             is_audio = True
-        elif selected_choice.startswith("✨ Best Available"):
+        elif selected_choice.startswith("Best Available"):
             selected_quality = "best"
             custom_spec = None
             is_audio = False
@@ -185,7 +193,8 @@ def choose_quality_and_download(url: str, output_dir: Optional[str] = None):
 
     out_dir = output_dir or ask_download_directory()
 
-    console.print(f"\n[cyan]🚀 Downloading video in [{selected_quality.upper()}] quality...[/cyan]")
+    stream_sweep(console)
+    console.print(f"[cyan]Downloading video in [{selected_quality.upper()}] quality...[/cyan]")
     res = download_with_rich_progress(
         url=url,
         output_dir=out_dir,
@@ -196,18 +205,12 @@ def choose_quality_and_download(url: str, output_dir: Optional[str] = None):
     )
 
     if res.success:
-        title_str = f"🎵 [bold white]{res.title or meta.title}[/bold white]\n" if (res.title or meta.title) else ""
-        file_str = f"📁 [yellow]{res.file_path}[/yellow]" if res.file_path else f"📁 Saved to folder: [yellow]{out_dir}[/yellow]"
-        console.print(Panel.fit(
-            f"[bold green]✅ Download Completed Successfully![/bold green]\n"
-            f"{title_str}{file_str}",
-            border_style="green"
-        ))
+        title_str = f"[bold white]{res.title or meta.title}[/bold white]\n" if (res.title or meta.title) else ""
+        file_str = f"[yellow]{res.file_path}[/yellow]" if res.file_path else f"Saved to folder: [yellow]{out_dir}[/yellow]"
+        result_panel(console, "success", f"[bold green]Download Completed Successfully![/bold green]\n"
+            f"{title_str}{file_str}")
     else:
-        console.print(Panel.fit(
-            f"[bold red]❌ Download Failed[/bold red]\n{res.error_message}",
-            border_style="red"
-        ))
+        result_panel(console, "error", f"[bold red]Download Failed[/bold red]\n{res.error_message}")
 
 
 @app.command("download")
@@ -225,7 +228,8 @@ def download_cli(
         return
 
     out_dir = output or get_default_download_dir()
-    console.print(f"[cyan]🚀 Initializing download for:[/cyan] [bold white]{url}[/bold white]")
+    stream_sweep(console, width=32)
+    console.print(f"[cyan]Initializing download for:[/cyan] [bold white]{url}[/bold white]")
 
     result = download_with_rich_progress(
         url=url,
@@ -236,18 +240,12 @@ def download_cli(
     )
 
     if result.success:
-        title_str = f"🎵 [bold white]{result.title}[/bold white]\n" if result.title else ""
-        file_str = f"📁 [yellow]{result.file_path}[/yellow]" if result.file_path else f"📁 Saved to folder: [yellow]{out_dir}[/yellow]"
-        console.print(Panel.fit(
-            f"[bold green]✅ Download Completed Successfully![/bold green]\n"
-            f"{title_str}{file_str}",
-            border_style="green"
-        ))
+        title_str = f"[bold white]{result.title}[/bold white]\n" if result.title else ""
+        file_str = f"[yellow]{result.file_path}[/yellow]" if result.file_path else f"Saved to folder: [yellow]{out_dir}[/yellow]"
+        result_panel(console, "success", f"[bold green]Download Completed Successfully![/bold green]\n"
+            f"{title_str}{file_str}")
     else:
-        console.print(Panel.fit(
-            f"[bold red]❌ Download Failed[/bold red]\n{result.error_message}",
-            border_style="red"
-        ))
+        result_panel(console, "error", f"[bold red]Download Failed[/bold red]\n{result.error_message}")
         raise typer.Exit(1)
 
 
@@ -263,7 +261,7 @@ def trim_cli(
     trimmer = MediaTrimmer(output_dir=output if (output and os.path.isdir(output)) else None)
     is_url = target.startswith(("http://", "https://"))
 
-    console.print(f"[bold cyan]✂️ Starting Video Trim [{time_range}] ({'Frame-Exact' if exact else 'Fast Keyframe'})...[/bold cyan]")
+    console.print(f"[bold cyan]Starting Video Trim [{time_range}] ({'Frame-Exact' if exact else 'Fast Keyframe'})...[/bold cyan]")
 
     with Progress(
         SpinnerColumn(),
@@ -305,17 +303,11 @@ def trim_cli(
 
     if res.success:
         dur_str = f"{res.time_range.duration_seconds:.1f}s" if res.time_range else "Clip"
-        console.print(Panel.fit(
-            f"[bold green]✅ Segment Trimmed Successfully![/bold green]\n"
-            f"⏱️ Duration: [yellow]{dur_str}[/yellow] ({res.time_range.formatted_start} → {res.time_range.formatted_end})\n"
-            f"📁 Saved to: [yellow]{res.file_path}[/yellow]",
-            border_style="green"
-        ))
+        result_panel(console, "success", f"[bold green]Segment Trimmed Successfully![/bold green]\n"
+            f"Duration: [yellow]{dur_str}[/yellow] ({res.time_range.formatted_start} -> {res.time_range.formatted_end})\n"
+            f"Saved to: [yellow]{res.file_path}[/yellow]")
     else:
-        console.print(Panel.fit(
-            f"[bold red]❌ Trim Failed[/bold red]\n{res.error_message}",
-            border_style="red"
-        ))
+        result_panel(console, "error", f"[bold red]Trim Failed[/bold red]\n{res.error_message}")
         raise typer.Exit(1)
 
 
@@ -328,7 +320,7 @@ def compress_cli(
 ):
     """Smart-compress a video to fit messenger limits with ladder downscaling & faststart."""
     if not os.path.exists(input_file):
-        console.print(f"[bold red]❌ Input file not found:[/bold red] {input_file}")
+        console.print(f"[bold red]Input file not found:[/bold red] {input_file}")
         raise typer.Exit(1)
 
     target_size = 25.0
@@ -348,7 +340,7 @@ def compress_cli(
     info = probe_video_file(input_file)
     compressor = VideoCompressor(target_mib=target_size)
 
-    console.print(f"[bold cyan]📦 Analyzing video for compression ({target_size:.1f} MiB limit)...[/bold cyan]")
+    console.print(f"[bold cyan]Analyzing video for compression ({target_size:.1f} MiB limit)...[/bold cyan]")
     orig_mb = info.filesize_bytes / (1024 * 1024)
 
     with Progress(
@@ -359,7 +351,7 @@ def compress_cli(
         TimeRemainingColumn(),
         console=console
     ) as progress:
-        task_id = progress.add_task(f"[cyan]Compressing video ({orig_mb:.1f} MB → ≤{target_size:.1f} MB)...", total=100)
+        task_id = progress.add_task(f"[cyan]Compressing video ({orig_mb:.1f} MB -> <={target_size:.1f} MB)...", total=100)
 
         def on_prog(pct: float, speed: Optional[float]):
             spd_str = f" [{speed:.1f}x]" if speed else ""
@@ -374,21 +366,15 @@ def compress_cli(
     if res.success:
         final_mb = res.final_bytes / (1024 * 1024)
         saved_pct = max(0.0, (1.0 - (res.final_bytes / max(1, res.orig_bytes))) * 100.0)
-        
-        downscale_msg = f"\n🔄 Ladder Downscaled to: [cyan]{res.plan.target_width}x{res.plan.target_height}[/cyan] for crisp quality" if (res.plan and res.plan.is_downscaled) else ""
 
-        console.print(Panel.fit(
-            f"[bold green]✅ Video Compressed Successfully![/bold green]\n"
-            f"📊 Size: [yellow]{orig_mb:.1f} MB[/yellow] → [bold green]{final_mb:.1f} MB[/bold green] ([green]-{saved_pct:.1f}%[/green])\n"
-            f"🎬 Bitrate: [cyan]{res.plan.video_kbps} kbps[/cyan] video + [cyan]{res.plan.audio_kbps} kbps[/cyan] aac{downscale_msg}\n"
-            f"📁 Output: [yellow]{res.output_path}[/yellow]",
-            border_style="green"
-        ))
+        downscale_msg = f"\n Ladder Downscaled to: [cyan]{res.plan.target_width}x{res.plan.target_height}[/cyan] for crisp quality" if (res.plan and res.plan.is_downscaled) else ""
+
+        result_panel(console, "success", f"[bold green]Video Compressed Successfully![/bold green]\n"
+            f"Size: [yellow]{orig_mb:.1f} MB[/yellow] -> [bold green]{final_mb:.1f} MB[/bold green] ([green]-{saved_pct:.1f}%[/green])\n"
+            f"Bitrate: [cyan]{res.plan.video_kbps} kbps[/cyan] video + [cyan]{res.plan.audio_kbps} kbps[/cyan] aac{downscale_msg}\n"
+            f"Output: [yellow]{res.output_path}[/yellow]")
     else:
-        console.print(Panel.fit(
-            f"[bold red]❌ Compression Failed[/bold red]\n{res.error_message}",
-            border_style="red"
-        ))
+        result_panel(console, "error", f"[bold red]Compression Failed[/bold red]\n{res.error_message}")
         raise typer.Exit(1)
 
 
@@ -401,7 +387,7 @@ def doctor_cli():
 @app.command("update-engine")
 def update_engine_cli():
     """Update the core yt-dlp downloader engine to the latest version."""
-    console.print("[bold cyan]🔄 Checking for yt-dlp engine updates...[/bold cyan]")
+    console.print("[bold cyan]Checking for yt-dlp engine updates...[/bold cyan]")
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -417,9 +403,9 @@ def update_engine_cli():
         success, msg = EngineUpdater.update_ytdlp_engine(progress_callback=on_update_prog)
 
     if success:
-        console.print(Panel.fit(f"[bold green]✅ {msg}[/bold green]", border_style="green"))
+        result_panel(console, "success", f"[bold green]{msg}[/bold green]")
     else:
-        console.print(Panel.fit(f"[bold red]❌ {msg}[/bold red]", border_style="red"))
+        result_panel(console, "error", f"[bold red]{msg}[/bold red]")
 
 # -----------------------------------------------------------------------------
 # INTERACTIVE TUI MODE
@@ -428,15 +414,17 @@ def update_engine_cli():
 def run_interactive_tui():
     """Interactive TUI navigation menu for OmniDown."""
     console.clear()
-    console.print(LOGO)
+    animated_banner(console, LOGO)
 
-    console.print(Panel(
-        f"[bold white]🎬 OmniDown - Universal Video Downloader & Media Processor[/bold white]\n"
-        f"[dim]• VK Video & Clips • YouTube • Rutube • OK.ru • TikTok • Twitch • Dzen[/dim]\n"
-        f"[dim]• Stream Slicing (Trim) • Smart Compressor • Lossless Audio • Faststart[/dim]\n"
-        f"[dim cyan]v{__version__} • GitHub: {__github__}[/dim cyan]",
-        border_style="cyan"
-    ))
+    animated_panel(
+        console,
+        f"[bold white]OmniDown - Universal Video Downloader & Media Processor[/bold white]\n"
+        f"[dim]* VK Video & Clips * YouTube * Rutube * OK.ru * TikTok * Twitch * Dzen[/dim]\n"
+        f"[dim]* Stream Slicing (Trim) * Smart Compressor * Lossless Audio * Faststart[/dim]\n"
+        f"[dim cyan]v{__version__} * GitHub: {__github__}[/dim cyan]",
+        kind="info",
+        cycles=1,
+    )
 
     while True:
         try:
@@ -444,28 +432,28 @@ def run_interactive_tui():
             action = inquirer.select(
                 message="\nWhat would you like to do?",
                 choices=[
-                    "📥 Download Video (Pick Quality & Size)",
-                    f"⚡ Quick Download [Default: {cur_q}]",
-                    "🔍 Inspect Stream Matrix & Info",
-                    "✂️ Download Video Segment (Stream Trim)",
-                    "🎵 Extract Audio Only (MP3 / FLAC / M4A / Opus)",
-                    "📦 Smart Compress Video (Discord / Telegram / WhatsApp)",
-                    "🩺 Run System Diagnostics (Doctor)",
-                    "🔄 Update Downloader Engine (yt-dlp)",
-                    "⚙️ Settings",
-                    "❌ Exit"
+                    "Download Video (Pick Quality & Size)",
+                    f"Quick Download [Default: {cur_q}]",
+                    "Inspect Stream Matrix & Info",
+                    "Download Video Segment (Stream Trim)",
+                    "Extract Audio Only (MP3 / FLAC / M4A / Opus)",
+                    "Smart Compress Video (Discord / Telegram / WhatsApp)",
+                    "Run System Diagnostics (Doctor)",
+                    "Update Downloader Engine (yt-dlp)",
+                    "Settings",
+                    "Exit"
                 ],
                 pointer="> "
             ).execute()
 
-            if action == "❌ Exit":
-                console.print("[dim]Goodbye! 👋[/dim]")
+            if action == "Exit":
+                console.print("[dim]Goodbye![/dim]")
                 break
 
             # -------------------------------------------------------------
             # 1. DOWNLOAD WITH QUALITY & SIZE PICKER
             # -------------------------------------------------------------
-            if action.startswith("📥 Download Video (Pick Quality & Size)"):
+            if action.startswith("Download Video (Pick Quality & Size)"):
                 url = inquirer.text(message="Enter video URL:").execute()
                 if url and url.strip():
                     choose_quality_and_download(url.strip())
@@ -473,7 +461,7 @@ def run_interactive_tui():
             # -------------------------------------------------------------
             # 2. QUICK DOWNLOAD
             # -------------------------------------------------------------
-            elif action.startswith("⚡ Quick Download"):
+            elif action.startswith("Quick Download"):
                 url = inquirer.text(message="Enter video URL:").execute()
                 if not url or not url.strip():
                     continue
@@ -481,21 +469,19 @@ def run_interactive_tui():
                 out_dir = ask_download_directory()
                 quality = config.get("default_quality", "best")
 
-                console.print(f"\n[cyan]🚀 Downloading in [{quality.upper()}] quality...[/cyan]")
+                stream_sweep(console)
+                console.print(f"[cyan]Downloading in [{quality.upper()}] quality...[/cyan]")
                 res = download_with_rich_progress(url=url.strip(), output_dir=out_dir, quality=quality)
                 if res.success:
-                    console.print(Panel.fit(
-                        f"[bold green]✅ Downloaded successfully![/bold green]\n"
-                        f"📁 Saved to: [yellow]{res.file_path or out_dir}[/yellow]",
-                        border_style="green"
-                    ))
+                    result_panel(console, "success", f"[bold green]Downloaded successfully![/bold green]\n"
+                        f"Saved to: [yellow]{res.file_path or out_dir}[/yellow]")
                 else:
-                    console.print(Panel.fit(f"[bold red]❌ Error:[/bold red] {res.error_message}", border_style="red"))
+                    result_panel(console, "error", f"[bold red]Error:[/bold red] {res.error_message}")
 
             # -------------------------------------------------------------
             # 3. INSPECT STREAMS
             # -------------------------------------------------------------
-            elif action.startswith("🔍 Inspect Stream Matrix"):
+            elif action.startswith("Inspect Stream Matrix"):
                 url = inquirer.text(message="Enter video URL to inspect:").execute()
                 if not url or not url.strip():
                     continue
@@ -504,18 +490,19 @@ def run_interactive_tui():
                     try:
                         meta = VideoInspector.inspect(url.strip(), cookies_browser=config.get("browser_cookies"))
                     except Exception as e:
-                        console.print(f"[bold red]❌ Inspection Error:[/bold red] {e}")
+                        console.print(f"[bold red]Inspection Error:[/bold red] {e}")
                         continue
 
-                console.print(Panel.fit(
+                animated_panel(
+                    console,
                     f"[bold white]{meta.title}[/bold white]\n"
-                    f"👤 [bold]Channel/Uploader:[/bold] [green]{meta.uploader}[/green]\n"
-                    f"⏱️ [bold]Duration:[/bold] [yellow]{meta.formatted_duration}[/yellow]\n"
-                    f"🌐 [bold]Platform:[/bold] [cyan]{meta.platform}[/cyan]"
-                    + (f" 📑 ([bold magenta]{meta.playlist_count} videos in playlist[/bold magenta])" if meta.is_playlist else ""),
-                    title=f"🎬 {meta.platform} Stream Info",
-                    border_style="cyan"
-                ))
+                    f"[bold]Channel/Uploader:[/bold] [green]{meta.uploader}[/green]\n"
+                    f"[bold]Duration:[/bold] [yellow]{meta.formatted_duration}[/yellow]\n"
+                    f"[bold]Platform:[/bold] [cyan]{meta.platform}[/cyan]"
+                    + (f"([bold magenta]{meta.playlist_count} videos in playlist[/bold magenta])" if meta.is_playlist else ""),
+                    title=f"{meta.platform} Stream Info",
+                    kind="info",
+                )
 
                 if meta.quality_options:
                     table = Table(title="Available Video Qualities & Estimated Sizes", border_style="green")
@@ -533,12 +520,12 @@ def run_interactive_tui():
 
                     console.print(table)
                 else:
-                    console.print("[yellow]ℹ️ Stream qualities will be negotiated dynamically at download time.[/yellow]")
+                    console.print("[yellow]Note: stream qualities will be negotiated dynamically at download time.[/yellow]")
 
             # -------------------------------------------------------------
             # 3. STREAM TRIM
             # -------------------------------------------------------------
-            elif action == "✂️ Download Video Segment (Stream Trim)":
+            elif action == "Download Video Segment (Stream Trim)":
                 url = inquirer.text(message="Enter video URL:").execute()
                 if not url or not url.strip():
                     continue
@@ -575,19 +562,16 @@ def run_interactive_tui():
                     )
 
                 if res.success:
-                    console.print(Panel.fit(
-                        f"[bold green]✅ Segment Trimmed Successfully![/bold green]\n"
-                        f"⏱️ Range: [yellow]{res.time_range.formatted_start} → {res.time_range.formatted_end}[/yellow]\n"
-                        f"📁 Saved to: [yellow]{res.file_path}[/yellow]",
-                        border_style="green"
-                    ))
+                    result_panel(console, "success", f"[bold green]Segment Trimmed Successfully![/bold green]\n"
+                        f"Range: [yellow]{res.time_range.formatted_start} -> {res.time_range.formatted_end}[/yellow]\n"
+                        f"Saved to: [yellow]{res.file_path}[/yellow]")
                 else:
-                    console.print(Panel.fit(f"[bold red]❌ Trim Failed:[/bold red] {res.error_message}", border_style="red"))
+                    result_panel(console, "error", f"[bold red]Trim Failed:[/bold red] {res.error_message}")
 
             # -------------------------------------------------------------
             # 4. EXTRACT AUDIO
             # -------------------------------------------------------------
-            elif action.startswith("🎵 Extract Audio Only"):
+            elif action.startswith("Extract Audio Only"):
                 url = inquirer.text(message="Enter video URL:").execute()
                 if not url or not url.strip():
                     continue
@@ -606,18 +590,15 @@ def run_interactive_tui():
                 out_dir = ask_download_directory()
                 res = download_with_rich_progress(url=url.strip(), output_dir=out_dir, audio_only=True, audio_format=fmt_code)
                 if res.success:
-                    console.print(Panel.fit(
-                        f"[bold green]✅ Audio Extracted Successfully ({fmt_code.upper()})![/bold green]\n"
-                        f"📁 Saved to: [yellow]{res.file_path or out_dir}[/yellow]",
-                        border_style="green"
-                    ))
+                    result_panel(console, "success", f"[bold green]Audio Extracted Successfully ({fmt_code.upper()})![/bold green]\n"
+                        f"Saved to: [yellow]{res.file_path or out_dir}[/yellow]")
                 else:
-                    console.print(Panel.fit(f"[bold red]❌ Error:[/bold red] {res.error_message}", border_style="red"))
+                    result_panel(console, "error", f"[bold red]Error:[/bold red] {res.error_message}")
 
             # -------------------------------------------------------------
             # 5. SMART COMPRESSOR
             # -------------------------------------------------------------
-            elif action.startswith("📦 Smart Compress Video"):
+            elif action.startswith("Smart Compress Video"):
                 file_path = inquirer.filepath(
                     message="Select local video file to compress:",
                     validate=PathValidator(is_file=True, message="Must be a valid video file"),
@@ -660,7 +641,7 @@ def run_interactive_tui():
                     TimeRemainingColumn(),
                     console=console
                 ) as progress:
-                    task_id = progress.add_task(f"[cyan]Compressing ({orig_mb:.1f} MB → ≤{target_mb:.1f} MB)...", total=100)
+                    task_id = progress.add_task(f"[cyan]Compressing ({orig_mb:.1f} MB -> <={target_mb:.1f} MB)...", total=100)
 
                     def on_comp(pct: float, speed: Optional[float]):
                         spd = f" [{speed:.1f}x]" if speed else ""
@@ -671,28 +652,25 @@ def run_interactive_tui():
                 if res.success:
                     final_mb = res.final_bytes / (1024 * 1024)
                     saved_pct = max(0.0, (1.0 - (res.final_bytes / max(1, res.orig_bytes))) * 100.0)
-                    downscale_msg = f"\n🔄 Ladder Downscaled to: [cyan]{res.plan.target_width}x{res.plan.target_height}[/cyan]" if (res.plan and res.plan.is_downscaled) else ""
-                    console.print(Panel.fit(
-                        f"[bold green]✅ Video Compressed Successfully![/bold green]\n"
-                        f"📊 Size: [yellow]{orig_mb:.1f} MB[/yellow] → [bold green]{final_mb:.1f} MB[/bold green] ([green]-{saved_pct:.1f}%[/green])\n"
-                        f"🎬 Bitrate: [cyan]{res.plan.video_kbps} kbps[/cyan] video + [cyan]{res.plan.audio_kbps} kbps[/cyan] aac{downscale_msg}\n"
-                        f"📁 Saved to: [yellow]{res.output_path}[/yellow]",
-                        border_style="green"
-                    ))
+                    downscale_msg = f"\n Ladder Downscaled to: [cyan]{res.plan.target_width}x{res.plan.target_height}[/cyan]" if (res.plan and res.plan.is_downscaled) else ""
+                    result_panel(console, "success", f"[bold green]Video Compressed Successfully![/bold green]\n"
+                        f"Size: [yellow]{orig_mb:.1f} MB[/yellow] -> [bold green]{final_mb:.1f} MB[/bold green] ([green]-{saved_pct:.1f}%[/green])\n"
+                        f"Bitrate: [cyan]{res.plan.video_kbps} kbps[/cyan] video + [cyan]{res.plan.audio_kbps} kbps[/cyan] aac{downscale_msg}\n"
+                        f"Saved to: [yellow]{res.output_path}[/yellow]")
                 else:
-                    console.print(Panel.fit(f"[bold red]❌ Compression Failed:[/bold red] {res.error_message}", border_style="red"))
+                    result_panel(console, "error", f"[bold red]Compression Failed:[/bold red] {res.error_message}")
 
             # -------------------------------------------------------------
             # 6. DOCTOR
             # -------------------------------------------------------------
-            elif action.startswith("🩺 Run System Diagnostics"):
+            elif action.startswith("Run System Diagnostics"):
                 run_doctor_diagnostics()
 
             # -------------------------------------------------------------
             # 7. UPDATE ENGINE
             # -------------------------------------------------------------
-            elif action.startswith("🔄 Update Downloader Engine"):
-                console.print("[bold cyan]🔄 Updating core downloader engine (yt-dlp)...[/bold cyan]")
+            elif action.startswith("Update Downloader Engine"):
+                console.print("[bold cyan]Updating core downloader engine (yt-dlp)...[/bold cyan]")
                 with Progress(
                     SpinnerColumn(),
                     TextColumn("[progress.description]{task.description}"),
@@ -708,14 +686,14 @@ def run_interactive_tui():
                     success, msg = EngineUpdater.update_ytdlp_engine(progress_callback=on_up)
 
                 if success:
-                    console.print(Panel.fit(f"[bold green]✅ {msg}[/bold green]", border_style="green"))
+                    result_panel(console, "success", f"[bold green]{msg}[/bold green]")
                 else:
-                    console.print(Panel.fit(f"[bold red]❌ {msg}[/bold red]", border_style="red"))
+                    result_panel(console, "error", f"[bold red]{msg}[/bold red]")
 
             # -------------------------------------------------------------
             # 8. SETTINGS
             # -------------------------------------------------------------
-            elif action == "⚙️ Settings":
+            elif action == "Settings":
                 while True:
                     cur_dir = config.get("download_dir")
                     cur_q = config.get("default_quality")
@@ -725,18 +703,18 @@ def run_interactive_tui():
                     s_choice = inquirer.select(
                         message="Settings Menu:",
                         choices=[
-                            f"📁 Change Download Directory [Current: {cur_dir}]",
-                            f"🎬 Change Default Quality [Current: {cur_q.upper()}]",
-                            f"🍪 Configure Browser Cookies [Current: {cur_cookies}]",
-                            f"🌐 Configure Proxy [Current: {cur_proxy}]",
-                            "🔄 Reset Settings to Default",
-                            "⬅️ Back to Main Menu"
+                            f"Change Download Directory [Current: {cur_dir}]",
+                            f"Change Default Quality [Current: {cur_q.upper()}]",
+                            f"Configure Browser Cookies [Current: {cur_cookies}]",
+                            f"Configure Proxy [Current: {cur_proxy}]",
+                            "Reset Settings to Default",
+                            "Back to Main Menu"
                         ]
                     ).execute()
 
-                    if s_choice == "⬅️ Back to Main Menu":
+                    if s_choice == "Back to Main Menu":
                         break
-                    elif s_choice.startswith("📁 Change Download Directory"):
+                    elif s_choice.startswith("Change Download Directory"):
                         new_dir = inquirer.filepath(
                             message="Select default download directory:",
                             default=cur_dir,
@@ -745,8 +723,8 @@ def run_interactive_tui():
                         ).execute()
                         if new_dir:
                             config.set("download_dir", new_dir)
-                            console.print(f"[green]✔ Download directory updated to: {new_dir}[/green]")
-                    elif s_choice.startswith("🎬 Change Default Quality"):
+                            console.print(f"[green] Download directory updated to: {new_dir}[/green]")
+                    elif s_choice.startswith("Change Default Quality"):
                         new_q = inquirer.select(
                             message="Select default video quality:",
                             choices=["Best Available", "4K (2160p)", "2K (1440p)", "1080p (Full HD)", "720p (HD)", "480p (SD)"]
@@ -760,17 +738,17 @@ def run_interactive_tui():
                             "480p (SD)": "480p"
                         }
                         config.set("default_quality", q_map.get(new_q, "best"))
-                        console.print(f"[green]✔ Default quality set to: {q_map.get(new_q, 'best').upper()}[/green]")
-                    elif s_choice.startswith("🍪 Configure Browser Cookies"):
+                        console.print(f"[green] Default quality set to: {q_map.get(new_q, 'best').upper()}[/green]")
+                    elif s_choice.startswith("Configure Browser Cookies"):
                         b_choices = [b_desc for _, b_desc in CookieManager.get_supported_browsers()]
-                        b_choices.append("❌ None (Disable browser cookies)")
+                        b_choices.append("None (Disable browser cookies)")
                         selected_b = inquirer.select(
                             message="Select browser for importing cookies (for private & 18+ videos):",
                             choices=b_choices
                         ).execute()
                         if "None" in selected_b:
                             config.set("browser_cookies", None)
-                            console.print("[green]✔ Browser cookies disabled.[/green]")
+                            console.print("[green] Browser cookies disabled.[/green]")
                         else:
                             # Map description to name
                             for b_name, b_desc in CookieManager.get_supported_browsers():
@@ -779,24 +757,24 @@ def run_interactive_tui():
                                     warn = CookieManager.get_browser_warning(b_name)
                                     if warn:
                                         console.print(f"[yellow]{warn}[/yellow]")
-                                    console.print(f"[green]✔ Cookies will be imported from {b_name}.[/green]")
+                                    console.print(f"[green] Cookies will be imported from {b_name}.[/green]")
                                     break
-                    elif s_choice.startswith("🌐 Configure Proxy"):
+                    elif s_choice.startswith("Configure Proxy"):
                         new_proxy = inquirer.text(message="Enter proxy URL (e.g. http://127.0.0.1:8080 or socks5://... leave empty to disable):", default=config.get("proxy") or "").execute()
                         config.set("proxy", new_proxy.strip() or None)
-                        console.print("[green]✔ Proxy setting saved.[/green]")
-                    elif s_choice.startswith("🔄 Reset Settings"):
+                        console.print("[green] Proxy setting saved.[/green]")
+                    elif s_choice.startswith("Reset Settings"):
                         if inquirer.confirm("Are you sure you want to reset all settings to defaults?", default=False).execute():
                             config.reset()
-                            console.print("[green]✔ All settings reset to defaults.[/green]")
+                            console.print("[green] All settings reset to defaults.[/green]")
 
         except KeyboardInterrupt:
-            console.print("\n[dim]Goodbye! 👋[/dim]")
+            console.print("\n[dim]Goodbye![/dim]")
             break
         except typer.Exit:
             break
         except Exception as e:
-            console.print(f"\n[bold red]❌ Error:[/bold red] {e}")
+            console.print(f"\n[bold red]Error:[/bold red] {e}")
 
 
 def version_callback(value: bool):

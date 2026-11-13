@@ -4,13 +4,13 @@ from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 
 SUPPORTED_BROWSERS = [
-    ("firefox", "🦊 Mozilla Firefox (Recommended on Windows)"),
-    ("chrome", "🌐 Google Chrome"),
-    ("edge", "🌊 Microsoft Edge"),
-    ("brave", "🦁 Brave Browser"),
-    ("opera", "🔴 Opera"),
-    ("vivaldi", "🎭 Vivaldi"),
-    ("chromium", "⚪ Chromium"),
+    ("firefox", "Mozilla Firefox (Recommended on Windows)"),
+    ("chrome", "Google Chrome"),
+    ("edge", "Microsoft Edge"),
+    ("brave", "Brave Browser"),
+    ("opera", "Opera"),
+    ("vivaldi", "Vivaldi"),
+    ("chromium", "Chromium"),
 ]
 
 class CookieManager:
@@ -25,7 +25,7 @@ class CookieManager:
         """Returns warnings for known browser encryption limitations."""
         if sys.platform == "win32" and browser_name.lower() in ("chrome", "edge", "brave", "opera"):
             return (
-                "⚠️ Note: Chrome 127+ (and Chromium-based browsers) on Windows uses App-Bound encryption.\n"
+                "Note: Chrome 127+ (and Chromium-based browsers) on Windows uses App-Bound encryption.\n"
                 "If age-restricted or private video extraction fails, use Firefox or a cookies.txt file."
             )
         return None
