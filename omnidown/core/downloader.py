@@ -17,7 +17,7 @@ from omnidown.utils.config import config
 from omnidown.utils.sanitizer import sanitize_filename, resolve_collision
 from omnidown.utils.ffmpeg import FFmpegLocator
 from omnidown.utils.ytdlp_bin import YtDlpEngine, parse_progress_line, ProgressInfo
-from omnidown.core.format_selector import build_yt_dlp_format_spec
+from omnidown.core.format_selector import build_yt_dlp_format_spec, build_tiktok_format_spec
 from omnidown.extractors.router import URLRouter
 
 console = Console()
@@ -70,12 +70,15 @@ class VideoDownloader:
         platform_name, platform_cfg = URLRouter.identify_platform(normalized_url)
 
         has_ff = FFmpegLocator.has_ffprobe()
-        format_spec = custom_format_spec or build_yt_dlp_format_spec(
-            target_quality=self.quality,
-            allow_muxing=has_ff,
-            codec_priority=config.get("codec_priority", ["h264", "vp9", "av1"]),
-            audio_only=self.audio_only
-        )
+        if platform_name == "TikTok" and not self.audio_only:
+            format_spec = custom_format_spec or build_tiktok_format_spec()
+        else:
+            format_spec = custom_format_spec or build_yt_dlp_format_spec(
+                target_quality=self.quality,
+                allow_muxing=has_ff,
+                codec_priority=config.get("codec_priority", ["h264", "vp9", "av1"]),
+                audio_only=self.audio_only
+            )
 
         out_template = os.path.join(self.output_dir, "%(title)s.%(ext)s")
 

@@ -44,6 +44,14 @@ def normalize_codec(codec: Optional[str]) -> str:
     return codec.split(".")[0]
 
 
+def build_tiktok_format_spec() -> str:
+    """Prefer TikTok's original playback streams over watermarked downloads."""
+    return (
+        "play_addr/play_addr_h264/play/play_addr_bytevc1/"
+        "bestvideo+bestaudio/best"
+    )
+
+
 def build_yt_dlp_format_spec(
     target_quality: str = "best",
     allow_muxing: bool = True,

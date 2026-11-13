@@ -2,6 +2,7 @@ import pytest
 from omnidown.core.format_selector import (
     normalize_codec,
     build_yt_dlp_format_spec,
+    build_tiktok_format_spec,
     extract_quality_options,
 )
 from omnidown.utils.ytdlp_bin import parse_progress_line
@@ -24,6 +25,12 @@ def test_build_format_spec_muxing():
     spec = build_yt_dlp_format_spec(target_quality="1080p", allow_muxing=True)
     assert "+bestaudio/best" in spec
     assert "bestvideo[height<=1080]" in spec
+
+def test_build_tiktok_format_spec_prefers_unwatermarked_streams():
+    spec = build_tiktok_format_spec()
+    assert spec.startswith("play_addr/play_addr_h264/play/")
+    assert "download_addr" not in spec
+    assert spec.endswith("bestvideo+bestaudio/best")
 
 def test_build_format_spec_audio():
     spec = build_yt_dlp_format_spec(target_quality="mp3", audio_only=True)

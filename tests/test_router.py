@@ -17,6 +17,10 @@ def test_router_normalizes_and_identifies():
         ("https://youtu.be/dQw4w9WgXcQ", "YouTube", "https://www.youtube.com/watch?v=dQw4w9WgXcQ"),
         ("https://m.youtube.com/watch?v=abc", "YouTube", "https://www.youtube.com/watch?v=abc"),
         ("https://www.tiktok.com/@user/video/123", "TikTok", "https://www.tiktok.com/@user/video/123"),
+        ("https://vm.tiktok.com/ZMabcdef/", "TikTok", "https://vm.tiktok.com/ZMabcdef/"),
+        ("https://www.youtube.com/shorts/dQw4w9WgXcQ", "YouTube", "https://www.youtube.com/shorts/dQw4w9WgXcQ"),
+        ("https://x.com/user/status/123456789", "X / Twitter", "https://x.com/user/status/123456789"),
+        ("https://mobile.twitter.com/user/status/123456789", "X / Twitter", "https://mobile.twitter.com/user/status/123456789"),
         ("https://dzen.ru/video/watch/123", "Dzen", "https://dzen.ru/video/watch/123"),
     ]
 
